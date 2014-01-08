@@ -1,0 +1,361 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+                          Neo4j WebSocket Client
+
+  What is it?
+  -----------
+
+  The Neo4j WebSocket Client is the client side for a WebSocket-based driver
+  that enables applications to remotely use an embedded Neo4j database using
+  Cypher queries or stored procedures.
+
+  Documentation
+  -------------
+  Neo4j's documentation can be found at "http://www.neo4j.org/".
+
+
+  System Requirements
+  -------------------
+
+  Java:
+    1.7 or above.
+
+  Neo4j WebSocket common resources:
+    neo4j-websocket-common
+
+  Apache Maven (for building)
+    3.x
+
+  Installing Neo4j WebSocket Client
+  ---------------------------------
+
+  Installing to local Maven repository:
+
+    1. Download the source code of "neo4j-websocket-common" and extract it
+
+    5. Open a terminal and enter the root directory containing the file pom.xml
+
+    6. execute 'mvn install'
+
+    4. Download the source code of "neo4j-websocket-client" and extract it
+
+    5. Open a terminal and enter the root directory containing the file pom.xml
+
+    6. execute 'mvn install'
+
+
+  Alternatively, you can use precompiled jars.
+
+  Using Neo4j WebSocket Client
+  ----------------------------
+
+  Setup:
+
+    When using maven, you need to add the following dependencies:
+
+      <dependency>
+        <groupId>de.hofuniversity.iisys</groupId>
+        <artifactId>shindig-websocket-common</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+      </dependency>
+
+      <dependency>
+        <groupId>de.hofuniversity.iisys</groupId>
+        <artifactId>neo4j-websocket-client</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+      </dependency>
+
+    In case you want to use the included classes for testing you may also want
+    to include the test jar:
+
+      <dependency>
+        <groupId>de.hofuniversity.iisys</groupId>
+        <artifactId>neo4j-websocket-client</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <scope>test</scope>
+        <type>test-jar</type>
+      </dependency>
+
+
+  Connecting:
+
+    Before connecting, you need to look at your server's settings, so the
+    format parameters match and the
+
+    Single connection to single server:
+
+      //uri - WebSocket URI, for example ws://127.0.0.1:8080/server/websocket
+      //format - json or bson
+      //compression - none, fastest or best
+      WebSocketConnector connector = new WebSocketConnector(uri, format,
+        compression);
+
+      //actually connect
+      connector.connect();
+
+      //get the query handler to send queries with
+      IQueryHandler queryHandler = connector.getQueryHandler();
+
+
+    Multiple connections:
+
+      This connector uses a list of URIs to open the specified amount of
+      connections to each server. By default all queries, such as
+      'new stored procedure' are sent to all servers. Only direct requests,
+      i.e. Cypher queries are distributed using a round robin algorithm.
+
+      Multiple connections to one server can improve performance for highly
+      parallelized clients.
+
+      //uris - list of websocket URIs, containing at leas one URI
+      //connNum - number of connections per URI
+      //format - json or bson
+      //compression - none, fastest or best
+      MultiWebSocketConnector connector = new MultiWebSocketConnector(uris,
+        connNum, format, compression);
+
+      //actually connect
+      connector.connect();
+
+      //get the query handler to send queries with
+      IQueryHandler queryHandler = connector.getQueryHandler();
+
+
+  Configuration:
+
+    Depending on the implementation used, you can set some parameters:
+
+      //The query handler's internal timer frequency, i.e. the interval between
+      //timeout checks (milliseconds); default: 1000
+      queryHandler.setTimerInterval(3000);
+
+      //The time before a query times out (milliseconds); default: 30000
+      queryHandler.setTimeout(120000);
+
+      //The number of times a query is retried; default: 2
+      queryHandler.setRetryCount(0);
+
+
+    This is mainly useful if you expect queries to run for more than about
+    30 seconds, your queries will all be very fast or you don't want retries.
+
+  Usage:
+
+    Generic queries:
+
+      //first, create a new query object
+      //the types are defined in the enumeration
+      //"de.hofuniversity.iisys.neo4j.websock.query.EQueryType of the artifact"
+      //"neo4j-websocket-common"
+      WebsockQuery query = new WebsockQuery(type);
+
+      //set a payload if your request requires it
+      //it can be of any primitive type, a String, a Map or a List
+      query.setPayload(payload);
+
+      //set any parameters your request may require, i.e. parameters for stored
+      //procedures or Cypher queries
+      //supports the same types as the payload
+      query.setParameter(paramName, paramValue);
+
+      //depending on whether you are expecting an actual result set or just a
+      //query back you need to call one of the following methods
+      //both cause the query handler to automatically generate an ID for the
+      //query and send it to a server
+
+      //a callback is returned, which will either return a result once the
+      //server has responded or throw an Exception and deliver an error message
+      //in case the call fails
+
+      //the query handler can be used from multiple threads at once without
+      //external synchronization
+
+      //this callback will return a result set
+      IQueryCallback result = queryHandler.sendQuery(query);
+      AResultSet<?> resultSet = result.get();
+
+      //this callback will return an unmodified message
+      IMessageCallback result = queryHandler.sendMessage(query);
+      WebsockQuery response = result.get();
+
+      //queries that time out will be retried if the handler is configured to
+      //retry queries - if there are no more retries, the query will fail
+      //failed queries will throw an exception and return an error message if
+      //possible
+      String message = result.getErrorMessage();
+
+
+    Procedure call:
+
+      //Calls a stored procedure, returns a result set, a success message or an
+      //error message. Result sets can be single maps, lists or tables for java
+      //procedures but only table results for Cypher procedures.
+
+      //WebsockConstants contains some predefined parameters to handle paging,
+      //sorting and filtering you can use, but they are not handled
+      //automatically. Only Cypher procedures support paging by default, so you
+      //can retrieve a subset of all results without losing their total number.
+
+      WebsockQuery query = new WebsockQuery(EQueryType.PROCEDURE_CALL);
+      query.setPayload(procedureName);
+
+      query.setParameter(paramName1, paramValue1);
+      query.setParameter(paramName2, paramValue2);
+
+      IQueryCallback result = queryHandler.sendQuery(query);
+      AResultSet<?> resultSet = result.get();
+
+
+    Direct Cypher query:
+
+      //Directly executes a Cypher query, always returns a table result
+
+      //by default, the paging options are handled automatically
+
+      WebsockQuery query = new WebsockQuery(EQueryType.DIRECT_CYPHER);
+      query.setPayload(cypherQuery);
+
+      query.setParameter(paramName1, paramValue1);
+      query.setParameter(paramName2, paramValue2);
+
+      //first index to retrieve: 3
+      query.setParameter(WebsockConstants.SUBSET_START, 3);
+      query.setParameter(WebsockConstants.SUBSET_SIZE, 4);
+
+      IQueryCallback result = queryHandler.sendQuery(query);
+      TableResult resultSet = (TableResult) result.get();
+
+
+    New stored procedure:
+
+      //from the client, you can only create new stored Cypher procedures
+      //Java procedures need to be injected directly into the server
+
+      final WebsockQuery query = new WebsockQuery(EQueryType.STORE_PROCEDURE);
+      query.setPayload(cypherQuery);
+      query.setParameter(WebsockConstants.PROCEDURE_NAME, procedureName);
+
+      IMessageCallback result = queryHandler.sendMessage(query);
+
+      //wait for the success message or an Exception
+      result.get();
+
+      //note that procedures are not (yet) persistent on the server, so you
+      //need to re-create these procedures after reconnecting
+      //you can however specify Cypher procedures on the server side that will
+      //be loaded from a file automatically
+
+    Delete stored procedure:
+
+      //at the moment you can delete any stored procedure, even Java procedures
+
+      WebsockQuery query = new WebsockQuery(EQueryType.DELETE_PROCEDURE);
+      query.setPayload(procedureName);
+
+      IMessageCallback result = queryHandler.sendMessage(query);
+
+      //wait for the success message or an Exception
+      result.get();
+
+
+    Ping the server:
+
+      //will return a PONG message
+
+      WebsockQuery query = new WebsockQuery(EQueryType.PING);
+
+      IMessageCallback result = queryHandler.sendMessage(query);
+
+      WebsockQuery pong = result.get();
+
+
+  Results:
+
+    AResultSet<T>
+
+      //abstract base class for all result sets
+      AResultSet<T> set = callback.get();
+
+      //result object based on the underlying implementation
+      T result = set.getResults();
+
+      //type of the result set (single, list or table)
+      EQueryType type = set.getType();
+
+      //index of the first element from the list of all results (default: 0)
+      int first = set.getFirst();
+
+      //maximum number of results that were to be retrieved (default: -1)
+      int max = set.getMax();
+
+      //total number of results that matched the request (default: -1)
+      int total = set.getTotal();
+
+      //actual number of contained list entries / rows
+      int size = set.getSize();
+
+
+    SingleResult
+
+      //result containing a map of values, size is always 1
+      SingleResult set = (SingleResult) callback.get();
+
+      Map<String, ?> result = set.getResults();
+
+
+    ListResult
+
+      //result containing a list of values, size depends on list size
+      ListResult set = (ListResult) callback.get();
+
+      List<?> result = set.getResults();
+
+
+    TableResult
+
+      //result containing a list of table columns and a list of lists as the
+      //table's rows, size depends on the number of rows
+      TableResult set = (TableResult) callback.get();
+
+      //option one: listing all rows, in order
+      List<String> colums = set.getColumns();
+
+      //option two: directly retrieve column index in all rows
+      int columnIndex = set.getColumnIndex(columnName);
+
+      //get rows
+      List<List<?>> rows = set.getResults();
+
+      //row handling
+      for(List<?> row : rows)
+      {
+        Object columnValue = row.get(columnIndex);
+      }
+
+
+  Disconnecting:
+
+    connector.disconnect();
+
+
+  Missing features
+  ----------------
+
+  Rutime connection handling
+
+  Authentication
