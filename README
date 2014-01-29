@@ -47,16 +47,26 @@
   Installing to local Maven repository:
 
     1. Download the source code of "neo4j-websocket-common" and extract it
+      The projects's sources can be found at
+      "https://github.com/iisys-hof/neo4j-websocket-common"
+      and can be downloaded using git by executing
+      'git clone https://github.com/iisys-hof/neo4j-websocket-common.git'.
 
-    5. Open a terminal and enter the root directory containing the file pom.xml
+    2. Open a terminal and enter the root directory containing the file pom.xml
 
-    6. execute 'mvn install'
+    3. execute 'mvn install'
 
     4. Download the source code of "neo4j-websocket-client" and extract it
+      The projects's sources can be found at
+      "https://github.com/iisys-hof/neo4j-websocket-client"
+      and can be downloaded using git by executing
+      'git clone https://github.com/iisys-hof/neo4j-websocket-client.git'.
 
     5. Open a terminal and enter the root directory containing the file pom.xml
 
     6. execute 'mvn install'
+
+    7. You should now find a library jar file in the 'target' directory.
 
 
   Alternatively, you can use precompiled jars.
@@ -95,7 +105,7 @@
   Connecting:
 
     Before connecting, you need to look at your server's settings, so the
-    format parameters match and the
+    format and compression parameters match.
 
     Single connection to single server:
 
@@ -351,6 +361,23 @@
   Disconnecting:
 
     connector.disconnect();
+
+
+  Known Issues
+  ------------
+
+  Newer versions of Apache Tomcat have their own WebSockets library which
+  conflicts with a library included as Tyrus' dependecy. This causes the server
+  to throw an Exception saying "... not a subclass of ...". For these Tomcat
+  versions (tested with Tomcat 7.0.50) this can be fixed by removing the file
+  '${CONTEXT}/WEB-INF/lib/javax.websocket-api-1.0.jar'. However, this file is
+  needed for earlier Tomcat versions (probably below 7.0.42).
+
+  Furthermore, when all Tyrus libraries are deleted, the connector will
+  automatically use Tomcat's WebSocket libraries. But during our tests
+  connections to the WebSocket server have been unstable. The connection is
+  possibly terminated if unused for a certain amount of time which is not being
+  properly detected yet.
 
 
   Missing features
