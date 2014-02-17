@@ -343,7 +343,7 @@
       TableResult set = (TableResult) callback.get();
 
       //option one: listing all rows, in order
-      List<String> colums = set.getColumns();
+      List<String> columns = set.getColumns();
 
       //option two: directly retrieve column index in all rows
       int columnIndex = set.getColumnIndex(columnName);
@@ -367,7 +367,7 @@
   ------------
 
   Newer versions of Apache Tomcat have their own WebSockets library which
-  conflicts with a library included as Tyrus' dependecy. This causes the server
+  conflicts with a library included as Tyrus' dependency. This causes the server
   to throw an Exception saying "... not a subclass of ...". For these Tomcat
   versions (tested with Tomcat 7.0.50) this can be fixed by removing the file
   '${CONTEXT}/WEB-INF/lib/javax.websocket-api-1.0.jar'. However, this file is
@@ -383,6 +383,6 @@
   Missing features
   ----------------
 
-  Rutime connection handling
+  Runtime connection handling
 
   Authentication
