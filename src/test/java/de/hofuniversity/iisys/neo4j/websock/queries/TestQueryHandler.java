@@ -24,6 +24,7 @@ import java.util.Map.Entry;
 
 import org.junit.Assert;
 import de.hofuniversity.iisys.neo4j.websock.query.WebsockQuery;
+import de.hofuniversity.iisys.neo4j.websock.query.encoding.TransferUtil;
 import de.hofuniversity.iisys.neo4j.websock.result.AResultSet;
 
 /**
@@ -233,6 +234,18 @@ public class TestQueryHandler implements IQueryHandler
     public void deactivate()
     {
         //not needed
+    }
+
+    @Override
+    public void addTransferUtil(TransferUtil util)
+    {
+        //not needed
+    }
+
+    @Override
+    public void removeTransferUtil(TransferUtil util)
+    {
+       //not needed
     }
 
 }

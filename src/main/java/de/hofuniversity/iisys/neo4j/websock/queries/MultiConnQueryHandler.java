@@ -44,7 +44,7 @@ public class MultiConnQueryHandler implements IQueryHandler
 {
     public static final long DEFAULT_TIMEOUT_MS = 300000;
     public static final long DEFAULT_TIMER_MS = 1000;
-    public static final int DEFAULT_RETRIES = 2;
+    public static final int DEFAULT_RETRIES = 0;
 
     private final Object fTrigger;
 
@@ -57,6 +57,8 @@ public class MultiConnQueryHandler implements IQueryHandler
     private final Map<Integer, Long> fTimeouts;
     private final Map<Integer, Integer> fRetries;
     private final Map<Integer, Integer> fMultiCounters;
+    
+    private final Map<String, WebsockQuery> fProcedureQueries;
 
     private final Logger fLogger;
     private final boolean fDebug;
@@ -64,6 +66,8 @@ public class MultiConnQueryHandler implements IQueryHandler
     private long fTimeout;
     private long fTimerInt;
     private int fRetryNum;
+
+    private boolean fResendProcedures;
 
     private int fPoolCounter;
 
@@ -89,6 +93,8 @@ public class MultiConnQueryHandler implements IQueryHandler
         fTimeouts = new HashMap<Integer, Long>();
         fRetries = new HashMap<Integer, Integer>();
         fMultiCounters = new HashMap<Integer, Integer>();
+        
+        fProcedureQueries = new HashMap<String, WebsockQuery>();
 
         fNextId = 0;
 
@@ -98,6 +104,8 @@ public class MultiConnQueryHandler implements IQueryHandler
         fTimeout = DEFAULT_TIMEOUT_MS;
         fTimerInt = DEFAULT_TIMER_MS;
         fRetryNum = DEFAULT_RETRIES;
+        
+        fResendProcedures = true;
     }
 
     /**
@@ -105,7 +113,54 @@ public class MultiConnQueryHandler implements IQueryHandler
      */
     public void setTransferUtils(List<TransferUtil> utils)
     {
+        fSessionPool.clear();
         fSessionPool.addAll(utils);
+
+        if(fResendProcedures)
+        {
+            for(TransferUtil util : utils)
+            {
+                //re-create runtime stored procedures for new server
+                resendProcedureQueries(util);
+            }
+        }
+    }
+    
+    /**
+     * @param util transfer utility to add to the pool
+     */
+    public void addTransferUtil(TransferUtil util)
+    {
+        if(util != null)
+        {
+            fSessionPool.add(util);
+            
+            if(fResendProcedures)
+            {
+                //re-create runtime stored procedures for new server
+                resendProcedureQueries(util);
+            }
+        }
+    }
+    
+    /**
+     * @param util transfer utility to remove from the pool
+     */
+    public void removeTransferUtil(TransferUtil util)
+    {
+        if(util != null)
+        {
+            fSessionPool.remove(util);
+        }
+    }
+    
+    /**
+     * Clears all transfer utilities from the handler. Use with caution, in an
+     * active deployment this may cause the handler to malfunction.
+     */
+    public void clearTransferUtils()
+    {
+        fSessionPool.clear();
     }
 
     /**
@@ -180,6 +235,24 @@ public class MultiConnQueryHandler implements IQueryHandler
     public void setRetryCount(int retries)
     {
         fRetryNum = retries;
+    }
+
+    /**
+     * @return whether runtime stored procedures will be recreated for new
+     *      connections
+     */
+    public boolean isResendProcedures()
+    {
+        return fResendProcedures;
+    }
+
+    /**
+     * @param resendProcedures whether runtime stored procedures will be
+     *      recreated for new connections
+     */
+    public void setResendProcedures(boolean resendProcedures)
+    {
+        fResendProcedures = resendProcedures;
     }
 
     @Override
@@ -299,8 +372,14 @@ public class MultiConnQueryHandler implements IQueryHandler
     public void sendMessage(final WebsockQuery message,
         IMessageCallback callback)
     {
-        //TODO: check if session is open
-
+        //check if any session is open
+        if(fSessionPool.isEmpty())
+        {
+            //fail if there is no connection available
+            callback.setErrorMessage("no connection available");
+            return;
+        }
+        
         final int id = getId();
         message.setId(id);
 
@@ -335,15 +414,20 @@ public class MultiConnQueryHandler implements IQueryHandler
             e.printStackTrace();
             fLogger.log(Level.SEVERE, "failed to send message to server", e);
             callback.setErrorMessage("failed to send message to server");
-
-            //TODO: retry?
+            done(id);
         }
     }
 
     @Override
     public void sendQuery(final WebsockQuery query, IQueryCallback callback)
     {
-        //TODO: check if session is open
+        //check if any session is open
+        if(fSessionPool.isEmpty())
+        {
+            //fail if there is no connection available
+            callback.setErrorMessage("no connection available");
+            return;
+        }
 
         final int id = getId();
         query.setId(id);
@@ -379,8 +463,7 @@ public class MultiConnQueryHandler implements IQueryHandler
             e.printStackTrace();
             fLogger.log(Level.SEVERE, "failed to send query to server", e);
             callback.setErrorMessage("failed to send message to server");
-
-            //TODO: retry?
+            done(id);
         }
     }
 
@@ -404,6 +487,45 @@ public class MultiConnQueryHandler implements IQueryHandler
         for(TransferUtil remote : fSessionPool)
         {
             remote.sendMessage(message);
+        }
+    }
+    
+    private void resendProcedureQueries(final TransferUtil util)
+    {
+        //TODO: synchronization?
+        
+        int id = 0;
+        WebsockQuery query = null;
+        WebsockQuery oldQuery = null;
+        IMessageCallback callback = null;
+        
+        for(Entry<String, WebsockQuery> procQueryE
+            : fProcedureQueries.entrySet())
+        {
+            //create query with equivalent data
+            oldQuery = procQueryE.getValue();
+            query = new WebsockQuery(oldQuery.getType());
+            
+            id = getId();
+            query.setId(id);
+            
+            query.setParameters(oldQuery.getParameters());
+            query.setPayload(oldQuery.getPayload());
+            
+            //send query
+            try
+            {
+                callback = new MessageFuture();
+                fPendingMessages.put(id, callback);
+                
+                util.sendMessage(query);
+            }
+            catch(Exception e)
+            {
+                fLogger.log(Level.SEVERE,
+                    "failed to replay procedure creation: "
+                    + procQueryE.getKey(), e);
+            }
         }
     }
 
@@ -551,15 +673,35 @@ public class MultiConnQueryHandler implements IQueryHandler
 
             try
             {
-                switch(query.getType())
+                if(fSessionPool.isEmpty())
                 {
-                    case PROCEDURE_CALL:
-                    case DIRECT_CYPHER:
-                        sendToAny(query);
-                        break;
+                    //cancel query if no connections are available
+                    IErrorFuture<?> fut = fPendingMessages.get(id);
+                    if(fut != null)
+                    {
+                        fut.setErrorMessage("no connections availabe");
+                    }
+    
+                    fut = fPendingResults.get(id);
+                    if(fut != null)
+                    {
+                        fut.setErrorMessage("no connections availabe");
+                    }
+                    
+                    done(id);
+                }
+                else
+                {
+                    switch(query.getType())
+                    {
+                        case PROCEDURE_CALL:
+                        case DIRECT_CYPHER:
+                            sendToAny(query);
+                            break;
 
-                    default:
-                        sendToAll(query);
+                        default:
+                            sendToAll(query);
+                    }
                 }
             }
             catch (Exception e)

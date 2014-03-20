@@ -29,6 +29,8 @@ import javax.websocket.OnError;
 import javax.websocket.OnOpen;
 import javax.websocket.Session;
 
+import de.hofuniversity.iisys.neo4j.websock.util.ConnectionWatchdog;
+
 /**
  * Annotated client endpoint implementation logging connections and errors.
  */
@@ -37,6 +39,7 @@ public class ClientWebSocket
 {
     private final Logger fLogger;
 
+    private ConnectionWatchdog fWatchdog;
     private Session fSession;
 
     /**
@@ -59,9 +62,18 @@ public class ClientWebSocket
         fSession = session;
         fLogger.log(Level.INFO, "websocket opened");
     }
+    
+    /**
+     * @param watchdog watchdog to notify on closing
+     */
+    public void setWatchdog(ConnectionWatchdog watchdog)
+    {
+        fWatchdog = watchdog;
+    }
 
     /**
-     * Unregisters closed sessions and logs the closing reason.
+     * Unregisters closed sessions, notifies the watchdog and logs the closing
+     * reason.
      *
      * @param session session closed
      * @param closeReason reason for closing
@@ -71,6 +83,8 @@ public class ClientWebSocket
     {
         fSession = null;
         fLogger.log(Level.INFO, closeReason.getReasonPhrase());
+        
+        fWatchdog.disconnected();
     }
 
     /**

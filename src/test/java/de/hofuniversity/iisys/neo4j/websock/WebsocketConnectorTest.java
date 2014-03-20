@@ -57,6 +57,7 @@ public class WebsocketConnectorTest
         WebSocketConnector conn = new WebSocketConnector("ws://" + SERVER_IP
             + ":" + SERVER_PORT + SERVER_PATH + WS_PATH,
             WebsockConstants.JSON_FORMAT, WebsockConstants.NO_COMPRESSION);
+        conn.setWatchdogEnabled(false);
 
         conn.connect();
         Session session = conn.getSession();

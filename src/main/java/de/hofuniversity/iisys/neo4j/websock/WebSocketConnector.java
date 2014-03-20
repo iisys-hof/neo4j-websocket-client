@@ -19,18 +19,16 @@
 package de.hofuniversity.iisys.neo4j.websock;
 
 import java.io.IOException;
-import java.net.URI;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.websocket.ContainerProvider;
 import javax.websocket.DeploymentException;
 import javax.websocket.Session;
-import javax.websocket.WebSocketContainer;
 
 import de.hofuniversity.iisys.neo4j.websock.queries.BasicQueryHandler;
 import de.hofuniversity.iisys.neo4j.websock.queries.IQueryHandler;
-import de.hofuniversity.iisys.neo4j.websock.session.WebsockSession;
+import de.hofuniversity.iisys.neo4j.websock.util.ConnectionWatchdog;
+import de.hofuniversity.iisys.neo4j.websock.util.PingWatchdog;
 
 /**
  * Utility class for connecting to a remote websocket and starting a query
@@ -43,11 +41,12 @@ public class WebSocketConnector
     private final Logger fLogger;
 
     private final String fFormat, fCompression;
-
-    private Session fSession;
-    private ClientWebSocket fSocket;
+    
+    private ConnectionWatchdog fConnWatchdog;
     private BasicQueryHandler fQueryHandler;
-    private WebsockSession fWsSess;
+    
+    private boolean fFailOnError = false;
+    private boolean fWatchdogEnabled = true;
 
     /**
      * Creates a websocket connector that will connect to the given URI,
@@ -72,34 +71,119 @@ public class WebSocketConnector
 
         fLogger = Logger.getLogger(this.getClass().getName());
     }
+    
+    /**
+     * @return whether the watchdog will be enabled after connecting.
+     */
+    public boolean isWatchdogEnabled()
+    {
+        return fWatchdogEnabled;
+    }
+    
+    /**
+     * @param enabled whether to enable the watchdog after connecting
+     */
+    public void setWatchdogEnabled(boolean enabled)
+    {
+        fWatchdogEnabled = enabled;
+    }
+    
+    /**
+     * Returns whether the connector will stop connecting if an error occurs
+     * during initially creating connections. If this is false, connecting
+     * will not cause an Exception to be thrown and the connector will keep
+     * on trying to connect.
+     * 
+     * @return whether the connector will stop connecting if an error occurs
+     */
+    public boolean isFailOnError()
+    {
+        return fFailOnError;
+    }
 
+    /**
+     * Sets whether the connector will stop connecting if an error occurs
+     * during initially creating connections. If this is false, connecting
+     * will not cause an Exception to be thrown and the connector will keep
+     * on trying to connect.
+     * 
+     * @param failOnError
+     *      whether the connector will stop connecting if an error occurs
+     */
+    public void setFailOnError(boolean failOnError)
+    {
+        fFailOnError = failOnError;
+    }
+
+    /**
+     * Connects to a remote server, creating a query handler and returns the
+     * registered client websocket.
+     * 
+     * @return client websocket
+     * @throws DeploymentException if connecting fails
+     * @throws IOException if communication fails
+     */
     public ClientWebSocket connect() throws DeploymentException, IOException
     {
-        if(fSession == null)
+        if(fConnWatchdog == null
+            || fConnWatchdog.getWebsocket() == null)
         {
             fLogger.log(Level.INFO, "connecting to " + fUri);
-
-            //connect
-            WebSocketContainer container =
-                ContainerProvider.getWebSocketContainer();
-
-            fSocket = new ClientWebSocket();
-            fSession = container.connectToServer(fSocket, URI.create(fUri));
-            fWsSess = new WebsockSession(fSession);
 
             //create handlers
             //TODO: configure timeouts etc.
             fQueryHandler = new BasicQueryHandler();
-            ServerResponseHandler rHandler = new ServerResponseHandler(fWsSess,
-                fQueryHandler, fFormat, fCompression);
-            fQueryHandler.setTransferUtil(rHandler.getTransferUtil());
 
+            //connect
+            fConnWatchdog = new ConnectionWatchdog(fUri, fQueryHandler,
+                fFormat, fCompression);
+            
+            try
+            {
+                fConnWatchdog.connect();
+            }
+            catch(DeploymentException e)
+            {
+                fLogger.log(Level.SEVERE,
+                    "error while establishing initial connection", e);
+                e.printStackTrace();
+                
+                //propagate exception if an initial connection is needed
+                if(fFailOnError)
+                {
+                    throw e;
+                }
+            }
+            catch(IOException e)
+            {
+                fLogger.log(Level.SEVERE,
+                    "error while establishing initial connection", e);
+                e.printStackTrace();
+                
+                //propagate exception if an initial connection is needed
+                if(fFailOnError)
+                {
+                    throw e;
+                }
+            }
 
+            //activate query handler
             Thread queryHandlerThread = new Thread(fQueryHandler);
             queryHandlerThread.start();
+            
+            //start watchdogs
+            Thread connectionThread = new Thread(fConnWatchdog);
+            connectionThread.start();
+            
+            if(fWatchdogEnabled)
+            {
+                PingWatchdog watchdog = new PingWatchdog(fQueryHandler);
+                Thread watchdogThread = new Thread(watchdog);
+                watchdogThread.start();
+            }
         }
 
-        return fSocket;
+        return fConnWatchdog.getWebsocket();
     }
 
     /**
@@ -107,7 +191,7 @@ public class WebSocketConnector
      */
     public Session getSession()
     {
-        return fSession;
+        return fConnWatchdog.getSession();
     }
 
     /**
@@ -123,7 +207,7 @@ public class WebSocketConnector
      */
     public ClientWebSocket getWebsocket()
     {
-        return fSocket;
+        return fConnWatchdog.getWebsocket();
     }
 
     /**
@@ -133,13 +217,11 @@ public class WebSocketConnector
      */
     public void disconnect() throws IOException
     {
-        if(fSession != null)
+        if(fConnWatchdog != null)
         {
-            fSession.close();
-            fQueryHandler.deactivate();
+            fConnWatchdog.disconnect();
         }
-
-        fSession = null;
-        fSocket = null;
+        
+        fQueryHandler.deactivate();
     }
 }

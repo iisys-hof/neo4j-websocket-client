@@ -369,16 +369,18 @@
   Newer versions of Apache Tomcat have their own WebSockets library which
   conflicts with a library included as Tyrus' dependency. This causes the server
   to throw an Exception saying "... not a subclass of ...". For these Tomcat
-  versions (tested with Tomcat 7.0.50) this can be fixed by removing the file
-  '${CONTEXT}/WEB-INF/lib/javax.websocket-api-1.0.jar'. However, this file is
-  needed for earlier Tomcat versions (probably below 7.0.42).
+  versions (tested with Tomcat 7.0.50) this can be fixed easily.
 
-  Furthermore, when all Tyrus libraries are deleted, the connector will
-  automatically use Tomcat's WebSocket libraries. But during our tests
-  connections to the WebSocket server have been unstable. The connection is
-  possibly terminated if unused for a certain amount of time which is not being
-  properly detected yet.
+  Option 1: Removing Tomcat's WebSocket libraries in its own 'lib' directory.
+    The files to delete are called 'websocket-api.jar' and
+    'tomcat7-websocket.jar'. Make sure that no other applications need those
+    libraries.
 
+  Option 2:  Removing the file
+    '${CONTEXT}/WEB-INF/lib/javax.websocket-api-1.0.jar'. However, this file is
+    needed for earlier Tomcat versions (probably below 7.0.42). Furthermore, the
+    connector will probably automatically use Tomcat's WebSocket libraries.
+    During our tests connections to the WebSocket server have been unstable.
 
   Missing features
   ----------------

@@ -73,6 +73,7 @@ public class MultiWebSocketConnectorTest
 
         MultiWebSocketConnector conn = new MultiWebSocketConnector(uris, 2,
             WebsockConstants.JSON_FORMAT, WebsockConstants.NO_COMPRESSION);
+        conn.setWatchdogEnabled(false);
 
         conn.connect();
         List<Session> sessions = conn.getSessions();

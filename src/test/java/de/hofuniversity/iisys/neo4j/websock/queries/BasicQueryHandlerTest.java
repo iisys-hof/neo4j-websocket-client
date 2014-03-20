@@ -62,7 +62,7 @@ public class BasicQueryHandlerTest
             new NopMessageHandler(), true);
 
         TransferUtil util = new TransferUtil(stUtil, btUtil);
-        handler.setTransferUtil(util);
+        handler.addTransferUtil(util);
 
         handler.setTimeout(TIMEOUT_MS);
         handler.setTimerInterval(TIMER_MS);
@@ -114,7 +114,7 @@ public class BasicQueryHandlerTest
             new NopMessageHandler(), true);
 
         TransferUtil util = new TransferUtil(stUtil, btUtil);
-        handler.setTransferUtil(util);
+        handler.addTransferUtil(util);
 
         handler.setTimeout(TIMEOUT_MS);
         handler.setTimerInterval(TIMER_MS);

@@ -32,6 +32,7 @@ import de.hofuniversity.iisys.neo4j.websock.query.EQueryType;
 import de.hofuniversity.iisys.neo4j.websock.query.WebsockQuery;
 import de.hofuniversity.iisys.neo4j.websock.query.encoding.TransferUtil;
 import de.hofuniversity.iisys.neo4j.websock.result.AResultSet;
+import de.hofuniversity.iisys.neo4j.websock.session.WebsockConstants;
 import de.hofuniversity.iisys.neo4j.websock.util.ResultSetConverter;
 
 /**
@@ -42,7 +43,7 @@ public class BasicQueryHandler implements IQueryHandler
 {
     public static final long DEFAULT_TIMEOUT_MS = 300000;
     public static final long DEFAULT_TIMER_MS = 1000;
-    public static final int DEFAULT_RETRIES = 2;
+    public static final int DEFAULT_RETRIES = 0;
 
     private final Object fTrigger;
 
@@ -54,6 +55,8 @@ public class BasicQueryHandler implements IQueryHandler
     private final Map<Integer, Integer> fRetries;
 
     private final List<WebsockQuery> fUnhandled;
+    
+    private final Map<String, WebsockQuery> fProcedureQueries;
 
     private final Logger fLogger;
     private final boolean fDebug;
@@ -64,6 +67,8 @@ public class BasicQueryHandler implements IQueryHandler
     private long fTimerInt;
     private int fRetryNum;
 
+    private boolean fResendProcedures;
+    
     private boolean fActive;
 
     private Integer fNextId;
@@ -84,6 +89,8 @@ public class BasicQueryHandler implements IQueryHandler
         fRetries = new HashMap<Integer, Integer>();
 
         fUnhandled = new LinkedList<WebsockQuery>();
+        
+        fProcedureQueries = new HashMap<String, WebsockQuery>();
 
         fNextId = 0;
 
@@ -93,14 +100,29 @@ public class BasicQueryHandler implements IQueryHandler
         fTimeout = DEFAULT_TIMEOUT_MS;
         fTimerInt = DEFAULT_TIMER_MS;
         fRetryNum = DEFAULT_RETRIES;
+        
+        fResendProcedures = true;
     }
 
-    /**
-     * @param util transfer utility to use
-     */
-    public void setTransferUtil(TransferUtil util)
+    @Override
+    public void addTransferUtil(TransferUtil util)
     {
         fTransfer = util;
+        
+        if(fResendProcedures)
+        {
+            //re-create runtime stored procedures for new server
+            resendProcedureQueries(util);
+        }
+    }
+    
+    @Override
+    public void removeTransferUtil(TransferUtil util)
+    {
+        if(fTransfer == util)
+        {
+            fTransfer = null;
+        }
     }
 
     /**
@@ -175,6 +197,24 @@ public class BasicQueryHandler implements IQueryHandler
     public void setRetryCount(int retries)
     {
         fRetryNum = retries;
+    }
+
+    /**
+     * @return whether runtime stored procedures will be recreated for new
+     *      connections
+     */
+    public boolean isResendProcedures()
+    {
+        return fResendProcedures;
+    }
+
+    /**
+     * @param resendProcedures whether runtime stored procedures will be
+     *      recreated for new connections
+     */
+    public void setResendProcedures(boolean resendProcedures)
+    {
+        fResendProcedures = resendProcedures;
     }
 
     @Override
@@ -282,11 +322,19 @@ public class BasicQueryHandler implements IQueryHandler
     @Override
     public void sendMessage(WebsockQuery message, IMessageCallback callback)
     {
-        //TODO: check if session is open
+        //check if session is open
+        if(fTransfer == null)
+        {
+            //fail if there is no connection available
+            callback.setErrorMessage("no connection available");
+            return;
+        }
 
+        //generate ID
         final int id = getId();
         message.setId(id);
 
+        //register message as waiting for a response
         synchronized(fPendingQueries)
         {
             fPendingQueries.put(id, message);
@@ -300,24 +348,36 @@ public class BasicQueryHandler implements IQueryHandler
             fTimeouts.put(id, System.currentTimeMillis());
         }
 
+        //send message
         try
         {
             fTransfer.sendMessage(message);
+            
+            if(message.getType() == EQueryType.STORE_PROCEDURE
+                || message.getType() == EQueryType.DELETE_PROCEDURE)
+            {
+                handleProcedureQuery(message);
+            }
         }
         catch (Exception e)
         {
             e.printStackTrace();
             fLogger.log(Level.SEVERE, "failed to send message to server", e);
             callback.setErrorMessage("failed to send message to server");
-
-            //TODO: retry?
+            done(id);
         }
     }
 
     @Override
     public void sendQuery(WebsockQuery query, IQueryCallback callback)
     {
-        //TODO: check if session is open
+        //check if session is open
+        if(fTransfer == null)
+        {
+            //fail if there is no connection available
+            callback.setErrorMessage("no connection available");
+            return;
+        }
 
         final int id = getId();
         query.setId(id);
@@ -338,14 +398,75 @@ public class BasicQueryHandler implements IQueryHandler
         try
         {
             fTransfer.sendMessage(query);
+            
+            if(query.getType() == EQueryType.STORE_PROCEDURE
+                || query.getType() == EQueryType.DELETE_PROCEDURE)
+            {
+                handleProcedureQuery(query);
+            }
         }
         catch (Exception e)
         {
             e.printStackTrace();
             fLogger.log(Level.SEVERE, "failed to send query to server", e);
             callback.setErrorMessage("failed to send message to server");
-
-            //TODO: retry?
+            done(id);
+        }
+    }
+    
+    private void handleProcedureQuery(final WebsockQuery query)
+    {
+        //TODO: synchronization?
+        
+        if(query.getType() == EQueryType.STORE_PROCEDURE)
+        {
+            String name = query.getParameter(
+                WebsockConstants.PROCEDURE_NAME).toString();
+            fProcedureQueries.put(name, query);
+        }
+        else if(query.getType() == EQueryType.DELETE_PROCEDURE)
+        {
+            String name = query.getPayload().toString();
+            fProcedureQueries.remove(name);
+        }
+    }
+    
+    private void resendProcedureQueries(final TransferUtil util)
+    {
+        //TODO: synchronization?
+        
+        int id = 0;
+        WebsockQuery query = null;
+        WebsockQuery oldQuery = null;
+        IMessageCallback callback = null;
+        
+        for(Entry<String, WebsockQuery> procQueryE
+            : fProcedureQueries.entrySet())
+        {
+            //create query with equivalent data
+            oldQuery = procQueryE.getValue();
+            query = new WebsockQuery(oldQuery.getType());
+            
+            id = getId();
+            query.setId(id);
+            
+            query.setParameters(oldQuery.getParameters());
+            query.setPayload(oldQuery.getPayload());
+            
+            //send query
+            try
+            {
+                callback = new MessageFuture();
+                fPendingMessages.put(id, callback);
+                
+                util.sendMessage(query);
+            }
+            catch(Exception e)
+            {
+                fLogger.log(Level.SEVERE,
+                    "failed to replay procedure creation: "
+                    + procQueryE.getKey(), e);
+            }
         }
     }
 
@@ -504,7 +625,27 @@ public class BasicQueryHandler implements IQueryHandler
 
             try
             {
-                fTransfer.sendMessage(query);
+                if(fTransfer == null)
+                {
+                    //cancel query if no connections are available
+                    IErrorFuture<?> fut = fPendingMessages.get(id);
+                    if(fut != null)
+                    {
+                        fut.setErrorMessage("no connections availabe");
+                    }
+
+                    fut = fPendingResults.get(id);
+                    if(fut != null)
+                    {
+                        fut.setErrorMessage("no connections availabe");
+                    }
+                    
+                    done(id);
+                }
+                else
+                {
+                    fTransfer.sendMessage(query);
+                }
             }
             catch (Exception e)
             {

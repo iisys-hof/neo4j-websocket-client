@@ -19,6 +19,7 @@
 package de.hofuniversity.iisys.neo4j.websock.queries;
 
 import de.hofuniversity.iisys.neo4j.websock.query.WebsockQuery;
+import de.hofuniversity.iisys.neo4j.websock.query.encoding.TransferUtil;
 
 /**
  * Handler for incoming and outgoing messages that handles responses to
@@ -87,4 +88,14 @@ public interface IQueryHandler extends Runnable
      * Stops the internal timeout and retry mechanism.
      */
     public void deactivate();
+    
+    /**
+     * @param util transfer utility to add to the handler
+     */
+    public void addTransferUtil(TransferUtil util);
+    
+    /**
+     * @param util transfer utility to remove from the handler
+     */
+    public void removeTransferUtil(TransferUtil util);
 }
