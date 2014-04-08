@@ -93,7 +93,8 @@ public class TestWebsocketServer
      */
     public void start(String host, int port, String path) throws Exception
     {
-        fServer = new Server(host, port, path, TestWebsocketServer.class);
+        fServer = new Server(host, port, path, null,
+            TestWebsocketServer.class);
 
         fServer.start();
     }

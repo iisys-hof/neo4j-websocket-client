@@ -57,7 +57,7 @@ public class MultiConnQueryHandler implements IQueryHandler
     private final Map<Integer, Long> fTimeouts;
     private final Map<Integer, Integer> fRetries;
     private final Map<Integer, Integer> fMultiCounters;
-    
+
     private final Map<String, WebsockQuery> fProcedureQueries;
 
     private final Logger fLogger;
@@ -93,7 +93,7 @@ public class MultiConnQueryHandler implements IQueryHandler
         fTimeouts = new HashMap<Integer, Long>();
         fRetries = new HashMap<Integer, Integer>();
         fMultiCounters = new HashMap<Integer, Integer>();
-        
+
         fProcedureQueries = new HashMap<String, WebsockQuery>();
 
         fNextId = 0;
@@ -104,7 +104,7 @@ public class MultiConnQueryHandler implements IQueryHandler
         fTimeout = DEFAULT_TIMEOUT_MS;
         fTimerInt = DEFAULT_TIMER_MS;
         fRetryNum = DEFAULT_RETRIES;
-        
+
         fResendProcedures = true;
     }
 
@@ -125,7 +125,7 @@ public class MultiConnQueryHandler implements IQueryHandler
             }
         }
     }
-    
+
     /**
      * @param util transfer utility to add to the pool
      */
@@ -134,7 +134,7 @@ public class MultiConnQueryHandler implements IQueryHandler
         if(util != null)
         {
             fSessionPool.add(util);
-            
+
             if(fResendProcedures)
             {
                 //re-create runtime stored procedures for new server
@@ -142,7 +142,7 @@ public class MultiConnQueryHandler implements IQueryHandler
             }
         }
     }
-    
+
     /**
      * @param util transfer utility to remove from the pool
      */
@@ -153,7 +153,7 @@ public class MultiConnQueryHandler implements IQueryHandler
             fSessionPool.remove(util);
         }
     }
-    
+
     /**
      * Clears all transfer utilities from the handler. Use with caution, in an
      * active deployment this may cause the handler to malfunction.
@@ -163,21 +163,13 @@ public class MultiConnQueryHandler implements IQueryHandler
         fSessionPool.clear();
     }
 
-    /**
-     * @return number of milliseconds for query response timeouts
-     */
+    @Override
     public long getTimeout()
     {
         return fTimeout;
     }
 
-    /**
-     * Sets the number of milliseconds before retrying to send a query or
-     * canceling it and triggers a check.
-     * Values of 0 and less deactivate the timeout mechanism.
-     *
-     * @param timeout
-     */
+    @Override
     public void setTimeout(long timeout)
     {
         //TODO: synchronization?
@@ -379,7 +371,7 @@ public class MultiConnQueryHandler implements IQueryHandler
             callback.setErrorMessage("no connection available");
             return;
         }
-        
+
         final int id = getId();
         message.setId(id);
 
@@ -467,6 +459,56 @@ public class MultiConnQueryHandler implements IQueryHandler
         }
     }
 
+    @Override
+    public IMessageCallback sendDirectMessage(WebsockQuery message,
+        TransferUtil util)
+    {
+        MessageFuture future = new MessageFuture();
+
+        sendDirectMessage(message, future, util);
+
+        return future;
+    }
+
+    @Override
+    public void sendDirectMessage(WebsockQuery message,
+        IMessageCallback callback, TransferUtil util)
+    {
+        if(util == null)
+        {
+            callback.setErrorMessage("no connection available");
+            return;
+        }
+
+        final int id = getId();
+        message.setId(id);
+
+        synchronized(fPendingQueries)
+        {
+            fPendingQueries.put(id, message);
+        }
+        synchronized(fPendingMessages)
+        {
+            fPendingMessages.put(id, callback);
+        }
+        synchronized(fTimeouts)
+        {
+            fTimeouts.put(id, System.currentTimeMillis());
+        }
+
+        try
+        {
+            util.sendMessage(message);
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+            fLogger.log(Level.SEVERE, "failed to send message to server", e);
+            callback.setErrorMessage("failed to send message to server");
+            done(id);
+        }
+    }
+
     private void sendToAny(final WebsockQuery message) throws Exception
     {
         //TODO: synchronization?
@@ -489,35 +531,35 @@ public class MultiConnQueryHandler implements IQueryHandler
             remote.sendMessage(message);
         }
     }
-    
+
     private void resendProcedureQueries(final TransferUtil util)
     {
         //TODO: synchronization?
-        
+
         int id = 0;
         WebsockQuery query = null;
         WebsockQuery oldQuery = null;
         IMessageCallback callback = null;
-        
+
         for(Entry<String, WebsockQuery> procQueryE
             : fProcedureQueries.entrySet())
         {
             //create query with equivalent data
             oldQuery = procQueryE.getValue();
             query = new WebsockQuery(oldQuery.getType());
-            
+
             id = getId();
             query.setId(id);
-            
+
             query.setParameters(oldQuery.getParameters());
             query.setPayload(oldQuery.getPayload());
-            
+
             //send query
             try
             {
                 callback = new MessageFuture();
                 fPendingMessages.put(id, callback);
-                
+
                 util.sendMessage(query);
             }
             catch(Exception e)
@@ -681,13 +723,13 @@ public class MultiConnQueryHandler implements IQueryHandler
                     {
                         fut.setErrorMessage("no connections availabe");
                     }
-    
+
                     fut = fPendingResults.get(id);
                     if(fut != null)
                     {
                         fut.setErrorMessage("no connections availabe");
                     }
-                    
+
                     done(id);
                 }
                 else

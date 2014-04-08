@@ -43,12 +43,12 @@ public class MultiWebSocketConnectorTest
     private static final String SERVER_1_IP = "127.0.0.1";
     private static final String SERVER_1_PATH = "/junit-websocket1";
     private static final String WS_1_PATH = "/ws";
-    private static final int SERVER_1_PORT = 65210;
+    private static final int SERVER_1_PORT = 65211;
 
     private static final String SERVER_2_IP = "127.0.0.1";
     private static final String SERVER_2_PATH = "/junit-websocket2";
     private static final String WS_2_PATH = "/ws";
-    private static final int SERVER_2_PORT = 65211;
+    private static final int SERVER_2_PORT = 65212;
 
     private static final String TEST_MESSAGE = "test message";
 

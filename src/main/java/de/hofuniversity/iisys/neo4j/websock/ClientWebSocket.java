@@ -62,7 +62,7 @@ public class ClientWebSocket
         fSession = session;
         fLogger.log(Level.INFO, "websocket opened");
     }
-    
+
     /**
      * @param watchdog watchdog to notify on closing
      */
@@ -83,7 +83,7 @@ public class ClientWebSocket
     {
         fSession = null;
         fLogger.log(Level.INFO, closeReason.getReasonPhrase());
-        
+
         fWatchdog.disconnected();
     }
 

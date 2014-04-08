@@ -157,12 +157,43 @@
       //The time before a query times out (milliseconds); default: 30000
       queryHandler.setTimeout(120000);
 
-      //The number of times a query is retried; default: 2
-      queryHandler.setRetryCount(0);
+      //The number of times a query is retried; default: 0
+      queryHandler.setRetryCount(2);
 
 
     This is mainly useful if you expect queries to run for more than about
-    30 seconds, your queries will all be very fast or you don't want retries.
+    30 seconds, your queries will all be very fast or you want retries.
+
+
+  Authentication:
+
+    If your server requires authentication, you can pass your credentials to
+    the 'connect' function. You can either pass the password in plain text or
+    in the form of a prepared password hash. Clear text passwords will be
+    hashed before transmitting using the default hash method (SHA-512).
+
+      //connect using clear text credentials
+      connector.connect(user, password, false);
+
+      //connect using pre-hashed password
+      connector.connect(user, passwordHash, true);
+
+    To create a hash for your user password combination, in case you don't want
+    to store plain text passwords, navigate to the folder containing the Neo4j
+    WebSocket client library and use the following command:
+
+      java -cp ./neo4j-websocket-client-$VERSION.jar \
+      de.hofuniversity.iisys.neo4j.websock.util.HashUtil -u user
+      [-p password] [-h hash_algorithm]
+
+    Without the password parameter, you will be prompted to enter a
+    password. But if you choose to specify it through a parameter, you
+    should erase this call from your shell's history afterwards.
+
+    Caution: The provisional authentication setup itself is not completely
+      secure and restrictive file system permissions and an encrypted
+      connection are strongly recommended.
+
 
   Usage:
 
@@ -380,11 +411,8 @@
     '${CONTEXT}/WEB-INF/lib/javax.websocket-api-1.0.jar'. However, this file is
     needed for earlier Tomcat versions (probably below 7.0.42). Furthermore, the
     connector will probably automatically use Tomcat's WebSocket libraries.
-    During our tests connections to the WebSocket server have been unstable.
 
   Missing features
   ----------------
 
-  Runtime connection handling
-
-  Authentication
+  Separate credentials for separate servers

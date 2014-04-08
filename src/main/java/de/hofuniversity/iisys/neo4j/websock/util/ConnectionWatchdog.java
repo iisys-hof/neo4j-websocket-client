@@ -23,6 +23,7 @@ import java.net.URI;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.security.sasl.AuthenticationException;
 import javax.websocket.ContainerProvider;
 import javax.websocket.DeploymentException;
 import javax.websocket.Session;
@@ -30,8 +31,12 @@ import javax.websocket.WebSocketContainer;
 
 import de.hofuniversity.iisys.neo4j.websock.ClientWebSocket;
 import de.hofuniversity.iisys.neo4j.websock.ServerResponseHandler;
+import de.hofuniversity.iisys.neo4j.websock.queries.IMessageCallback;
 import de.hofuniversity.iisys.neo4j.websock.queries.IQueryHandler;
+import de.hofuniversity.iisys.neo4j.websock.query.EQueryType;
+import de.hofuniversity.iisys.neo4j.websock.query.WebsockQuery;
 import de.hofuniversity.iisys.neo4j.websock.query.encoding.TransferUtil;
+import de.hofuniversity.iisys.neo4j.websock.session.WebsockConstants;
 import de.hofuniversity.iisys.neo4j.websock.session.WebsockSession;
 
 /**
@@ -46,9 +51,9 @@ public class ConnectionWatchdog implements Runnable
 
     private final Object fTrigger;
     private final Logger fLogger;
-    
+
     private final URI fUri;
-    
+
     private final IQueryHandler fHandler;
 
     private final String fFormat, fCompression;
@@ -57,15 +62,17 @@ public class ConnectionWatchdog implements Runnable
     private Session fSession;
     private WebsockSession fWsSess;
     private TransferUtil fUtil;
-    
+
+    private String fUser, fPassword;
+
     private boolean fActive;
     private boolean fDisconnected;
-    
+
     /**
      * Creates a connection watchdog, establishing and monitoring a single
      * connection to the specified websocket URI.
      * Throws a NullPointerException if any arguments are null or empty.
-     * 
+     *
      * @param uri websocket URI to connect to
      * @param handler query handler to add connections to
      * @param format format to send and receive data in
@@ -75,7 +82,7 @@ public class ConnectionWatchdog implements Runnable
         String format, String comp)
     {
         fLogger = Logger.getLogger(this.getClass().getName());
-        
+
         if(uri == null || uri.isEmpty())
         {
             throw new NullPointerException("no URI given");
@@ -92,7 +99,7 @@ public class ConnectionWatchdog implements Runnable
         {
             throw new NullPointerException("no compression parameter given");
         }
-        
+
         fTrigger = new Object();
         fUri = URI.create(uri);
         fHandler = handler;
@@ -102,24 +109,39 @@ public class ConnectionWatchdog implements Runnable
         fDisconnected = false;
     }
 
+    /**
+     * Sets the authentication data to transmit after connecting.
+     * If any parameter is null, no information will be transmitted.
+     * The given password String will be transmitted directly, so it can
+     * either be clear text or hashed.
+     *
+     * @param user user name to transmit
+     * @param password password to transmit
+     */
+    public void setAuthData(String user, String password)
+    {
+        fUser = user;
+        fPassword = password;
+    }
+
     @Override
     public void run()
     {
         fActive = true;
-        
+
         while(fActive)
         {
             if(fSession == null || !fSession.isOpen()
                 || fDisconnected)
             {
                 fDisconnected = false;
-                
+
                 fLogger.log(Level.SEVERE, "connection to " + fUri.toString()
                     + " lost, trying to reconnect");
-                
+
                 retryLoop();
             }
-            
+
             try
             {
                 if(fActive)
@@ -137,7 +159,7 @@ public class ConnectionWatchdog implements Runnable
             }
         }
     }
-    
+
     private void retryLoop()
     {
         do
@@ -150,7 +172,7 @@ public class ConnectionWatchdog implements Runnable
             {
                 e.printStackTrace();
             }
-            
+
             try
             {
                 if(fActive
@@ -170,36 +192,79 @@ public class ConnectionWatchdog implements Runnable
         } while(fActive
             && (fSession == null || !fSession.isOpen()));
     }
-    
+
     /**
      * Connects to the configured websocket, discarding any old connections.
-     * 
+     *
      * @throws Exception if connecting fails
      */
     public void connect() throws DeploymentException, IOException
     {
         simpleDisconnect();
-        
+
         fLogger.log(Level.INFO, "connecting to " + fUri);
 
         //connect
         WebSocketContainer container =
             ContainerProvider.getWebSocketContainer();
-        
+
         fSocket = new ClientWebSocket();
         fSocket.setWatchdog(this);
         fSession = container.connectToServer(fSocket, fUri);
         fWsSess = new WebsockSession(fSession);
-        
+
         //create response handler
         ServerResponseHandler rHandler = new ServerResponseHandler(fWsSess,
             fHandler, fFormat, fCompression);
-        
-        //create and register transfer utility
         fUtil = rHandler.getTransferUtil();
+
+        //send authentication query if configured
+        boolean authenticated = authenticate();
+        if(!authenticated)
+        {
+            simpleDisconnect();
+            throw new AuthenticationException(
+                "authentication failed, disconnecting");
+        }
+
+        //register transfer utility
         fHandler.addTransferUtil(fUtil);
     }
-    
+
+    private boolean authenticate()
+    {
+        boolean success = true;
+
+        if(fUser != null && fPassword != null)
+        {
+            WebsockQuery message = new WebsockQuery(EQueryType.AUTHENTICATION);
+            message.setParameter(WebsockConstants.USERNAME, fUser);
+            message.setParameter(WebsockConstants.PASSWORD, fPassword);
+
+            IMessageCallback callback = fHandler.sendDirectMessage(message,
+                fUtil);
+
+            try
+            {
+                callback.get();
+            }
+            catch(Exception e)
+            {
+                String error = "authentication failed";
+
+                if(callback.getErrorMessage() != null)
+                {
+                    error += ":\n" + callback.getErrorMessage();
+                }
+
+                fLogger.log(Level.SEVERE, error, e);
+                success = false;
+            }
+        }
+
+        return success;
+    }
+
     /**
      * @return connection session, if there is one
      */
@@ -207,7 +272,7 @@ public class ConnectionWatchdog implements Runnable
     {
         return fSession;
     }
-    
+
     /**
      * @return connected client websocket
      */
@@ -215,7 +280,7 @@ public class ConnectionWatchdog implements Runnable
     {
         return fSocket;
     }
-    
+
     /**
      * External notification method to tell the watchdog that the connection
      * has been terminated.
@@ -228,11 +293,11 @@ public class ConnectionWatchdog implements Runnable
             fTrigger.notify();
         }
     }
-    
+
     private void simpleDisconnect()
     {
         fHandler.removeTransferUtil(fUtil);
-        
+
         if(fSession != null && fSession.isOpen())
         {
             try
@@ -245,20 +310,20 @@ public class ConnectionWatchdog implements Runnable
             }
         }
     }
-    
+
     /**
      * Disconnects the configured websocket, not restarting the connection.
      */
     public void disconnect()
     {
         fLogger.log(Level.INFO, "disconnecting from " + fUri);
-        
+
         fActive = false;
         synchronized(fTrigger)
         {
             fTrigger.notify();
         }
-        
+
         simpleDisconnect();
     }
 }

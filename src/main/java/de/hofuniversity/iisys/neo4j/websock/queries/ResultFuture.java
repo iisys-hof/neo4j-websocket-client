@@ -57,7 +57,7 @@ public class ResultFuture implements IQueryCallback
 
         try
         {
-            set = get(0, TimeUnit.DAYS);
+            set = get(0, TimeUnit.MILLISECONDS);
         }
         catch(TimeoutException e)
         {
@@ -71,6 +71,11 @@ public class ResultFuture implements IQueryCallback
     public AResultSet<?> get(long timeout, TimeUnit unit)
         throws InterruptedException, ExecutionException, TimeoutException
     {
+        if(unit != null)
+        {
+            timeout = TimeUnit.MILLISECONDS.convert(timeout, unit);
+        }
+
         if(!fDone)
         {
             synchronized(fTrigger)

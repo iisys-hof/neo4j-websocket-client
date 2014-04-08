@@ -245,7 +245,35 @@ public class TestQueryHandler implements IQueryHandler
     @Override
     public void removeTransferUtil(TransferUtil util)
     {
-       //not needed
+        //not needed
+    }
+
+    @Override
+    public long getTimeout()
+    {
+        //not needed
+        return 0;
+    }
+
+    @Override
+    public void setTimeout(long timeout)
+    {
+        //not needed
+    }
+
+    @Override
+    public IMessageCallback sendDirectMessage(WebsockQuery message,
+        TransferUtil util)
+    {
+        //not needed
+        return null;
+    }
+
+    @Override
+    public void sendDirectMessage(WebsockQuery message,
+        IMessageCallback callback, TransferUtil util)
+    {
+        //not needed
     }
 
 }

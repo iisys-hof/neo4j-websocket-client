@@ -38,7 +38,7 @@ public interface IQueryHandler extends Runnable
 
     /**
      * Sends a message, using the default callback implementation and a new ID.
-     * The message given must not be null.
+     * The message given message must not be null.
      *
      * @param message message to send
      * @return default callback for this message
@@ -47,7 +47,7 @@ public interface IQueryHandler extends Runnable
 
     /**
      * Sends a query, using the default callback implementation and a new ID.
-     * The query given must not be null.
+     * The query given query must not be null.
      *
      * @param query query to send
      * @return default callback for this query
@@ -73,6 +73,30 @@ public interface IQueryHandler extends Runnable
     public void sendQuery(WebsockQuery query, IQueryCallback callback);
 
     /**
+     * Sends a message, using the default callback implementation and a new ID
+     * directly using the given transfer utility.
+     * The message given parameters must not be null.
+     *
+     * @param message message to send
+     * @param util transfer utility to send with
+     * @return default callback
+     */
+    public IMessageCallback sendDirectMessage(WebsockQuery message,
+        TransferUtil util);
+
+    /**
+     * Sends a message, using the given callback and a new ID directly using
+     * the given transfer utility.
+     * The parameters given must not be null.
+     *
+     * @param message message to send
+     * @param callback callback to notify
+     * @param util transfer utility to send with
+     */
+    public void sendDirectMessage(WebsockQuery message, IMessageCallback callback,
+        TransferUtil util);
+
+    /**
      * @return new ID, unique until the first integer overflow
      */
     public int getId();
@@ -88,14 +112,28 @@ public interface IQueryHandler extends Runnable
      * Stops the internal timeout and retry mechanism.
      */
     public void deactivate();
-    
+
     /**
      * @param util transfer utility to add to the handler
      */
     public void addTransferUtil(TransferUtil util);
-    
+
     /**
      * @param util transfer utility to remove from the handler
      */
     public void removeTransferUtil(TransferUtil util);
+
+    /**
+     * @return number of milliseconds for query response timeouts
+     */
+    public long getTimeout();
+
+    /**
+     * Sets the number of milliseconds before retrying to send a query or
+     * canceling it and triggers a check.
+     * Values of 0 and less deactivate the timeout mechanism.
+     *
+     * @param timeout in milliseconds
+     */
+    public void setTimeout(long timeout);
 }

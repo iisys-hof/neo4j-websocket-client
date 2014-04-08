@@ -55,7 +55,7 @@ public class BasicQueryHandler implements IQueryHandler
     private final Map<Integer, Integer> fRetries;
 
     private final List<WebsockQuery> fUnhandled;
-    
+
     private final Map<String, WebsockQuery> fProcedureQueries;
 
     private final Logger fLogger;
@@ -68,7 +68,7 @@ public class BasicQueryHandler implements IQueryHandler
     private int fRetryNum;
 
     private boolean fResendProcedures;
-    
+
     private boolean fActive;
 
     private Integer fNextId;
@@ -89,7 +89,7 @@ public class BasicQueryHandler implements IQueryHandler
         fRetries = new HashMap<Integer, Integer>();
 
         fUnhandled = new LinkedList<WebsockQuery>();
-        
+
         fProcedureQueries = new HashMap<String, WebsockQuery>();
 
         fNextId = 0;
@@ -100,7 +100,7 @@ public class BasicQueryHandler implements IQueryHandler
         fTimeout = DEFAULT_TIMEOUT_MS;
         fTimerInt = DEFAULT_TIMER_MS;
         fRetryNum = DEFAULT_RETRIES;
-        
+
         fResendProcedures = true;
     }
 
@@ -108,14 +108,14 @@ public class BasicQueryHandler implements IQueryHandler
     public void addTransferUtil(TransferUtil util)
     {
         fTransfer = util;
-        
+
         if(fResendProcedures)
         {
             //re-create runtime stored procedures for new server
             resendProcedureQueries(util);
         }
     }
-    
+
     @Override
     public void removeTransferUtil(TransferUtil util)
     {
@@ -125,21 +125,13 @@ public class BasicQueryHandler implements IQueryHandler
         }
     }
 
-    /**
-     * @return number of milliseconds for query response timeouts
-     */
+    @Override
     public long getTimeout()
     {
         return fTimeout;
     }
 
-    /**
-     * Sets the number of milliseconds before retrying to send a query or
-     * canceling it and triggers a check.
-     * Values of 0 and less deactivate the timeout mechanism.
-     *
-     * @param timeout
-     */
+    @Override
     public void setTimeout(long timeout)
     {
         //TODO: synchronization?
@@ -352,7 +344,7 @@ public class BasicQueryHandler implements IQueryHandler
         try
         {
             fTransfer.sendMessage(message);
-            
+
             if(message.getType() == EQueryType.STORE_PROCEDURE
                 || message.getType() == EQueryType.DELETE_PROCEDURE)
             {
@@ -398,7 +390,7 @@ public class BasicQueryHandler implements IQueryHandler
         try
         {
             fTransfer.sendMessage(query);
-            
+
             if(query.getType() == EQueryType.STORE_PROCEDURE
                 || query.getType() == EQueryType.DELETE_PROCEDURE)
             {
@@ -413,11 +405,61 @@ public class BasicQueryHandler implements IQueryHandler
             done(id);
         }
     }
-    
+
+    @Override
+    public IMessageCallback sendDirectMessage(WebsockQuery message,
+        TransferUtil util)
+    {
+        MessageFuture future = new MessageFuture();
+
+        sendDirectMessage(message, future, util);
+
+        return future;
+    }
+
+    @Override
+    public void sendDirectMessage(WebsockQuery message,
+        IMessageCallback callback, TransferUtil util)
+    {
+        if(util == null)
+        {
+            callback.setErrorMessage("no connection available");
+            return;
+        }
+
+        final int id = getId();
+        message.setId(id);
+
+        synchronized(fPendingQueries)
+        {
+            fPendingQueries.put(id, message);
+        }
+        synchronized(fPendingMessages)
+        {
+            fPendingMessages.put(id, callback);
+        }
+        synchronized(fTimeouts)
+        {
+            fTimeouts.put(id, System.currentTimeMillis());
+        }
+
+        try
+        {
+            util.sendMessage(message);
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+            fLogger.log(Level.SEVERE, "failed to send message to server", e);
+            callback.setErrorMessage("failed to send message to server");
+            done(id);
+        }
+    }
+
     private void handleProcedureQuery(final WebsockQuery query)
     {
         //TODO: synchronization?
-        
+
         if(query.getType() == EQueryType.STORE_PROCEDURE)
         {
             String name = query.getParameter(
@@ -430,35 +472,35 @@ public class BasicQueryHandler implements IQueryHandler
             fProcedureQueries.remove(name);
         }
     }
-    
+
     private void resendProcedureQueries(final TransferUtil util)
     {
         //TODO: synchronization?
-        
+
         int id = 0;
         WebsockQuery query = null;
         WebsockQuery oldQuery = null;
         IMessageCallback callback = null;
-        
+
         for(Entry<String, WebsockQuery> procQueryE
             : fProcedureQueries.entrySet())
         {
             //create query with equivalent data
             oldQuery = procQueryE.getValue();
             query = new WebsockQuery(oldQuery.getType());
-            
+
             id = getId();
             query.setId(id);
-            
+
             query.setParameters(oldQuery.getParameters());
             query.setPayload(oldQuery.getPayload());
-            
+
             //send query
             try
             {
                 callback = new MessageFuture();
                 fPendingMessages.put(id, callback);
-                
+
                 util.sendMessage(query);
             }
             catch(Exception e)
@@ -639,7 +681,7 @@ public class BasicQueryHandler implements IQueryHandler
                     {
                         fut.setErrorMessage("no connections availabe");
                     }
-                    
+
                     done(id);
                 }
                 else

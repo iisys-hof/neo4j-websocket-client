@@ -28,6 +28,7 @@ import javax.websocket.Session;
 import de.hofuniversity.iisys.neo4j.websock.queries.BasicQueryHandler;
 import de.hofuniversity.iisys.neo4j.websock.queries.IQueryHandler;
 import de.hofuniversity.iisys.neo4j.websock.util.ConnectionWatchdog;
+import de.hofuniversity.iisys.neo4j.websock.util.HashUtil;
 import de.hofuniversity.iisys.neo4j.websock.util.PingWatchdog;
 
 /**
@@ -41,10 +42,10 @@ public class WebSocketConnector
     private final Logger fLogger;
 
     private final String fFormat, fCompression;
-    
+
     private ConnectionWatchdog fConnWatchdog;
     private BasicQueryHandler fQueryHandler;
-    
+
     private boolean fFailOnError = false;
     private boolean fWatchdogEnabled = true;
 
@@ -71,7 +72,7 @@ public class WebSocketConnector
 
         fLogger = Logger.getLogger(this.getClass().getName());
     }
-    
+
     /**
      * @return whether the watchdog will be enabled after connecting.
      */
@@ -79,7 +80,7 @@ public class WebSocketConnector
     {
         return fWatchdogEnabled;
     }
-    
+
     /**
      * @param enabled whether to enable the watchdog after connecting
      */
@@ -87,13 +88,13 @@ public class WebSocketConnector
     {
         fWatchdogEnabled = enabled;
     }
-    
+
     /**
      * Returns whether the connector will stop connecting if an error occurs
      * during initially creating connections. If this is false, connecting
      * will not cause an Exception to be thrown and the connector will keep
      * on trying to connect.
-     * 
+     *
      * @return whether the connector will stop connecting if an error occurs
      */
     public boolean isFailOnError()
@@ -106,7 +107,7 @@ public class WebSocketConnector
      * during initially creating connections. If this is false, connecting
      * will not cause an Exception to be thrown and the connector will keep
      * on trying to connect.
-     * 
+     *
      * @param failOnError
      *      whether the connector will stop connecting if an error occurs
      */
@@ -118,13 +119,36 @@ public class WebSocketConnector
     /**
      * Connects to a remote server, creating a query handler and returns the
      * registered client websocket.
-     * 
+     *
      * @return client websocket
      * @throws DeploymentException if connecting fails
      * @throws IOException if communication fails
      */
     public ClientWebSocket connect() throws DeploymentException, IOException
     {
+        return connect(null, null, false);
+    }
+
+    /**
+     * Connects to a remote server, creating a query handler, handles initial
+     * authentication and returns the registered client websocket.
+     *
+     * @param user name of the user
+     * @param password the user's password
+     * @param hash whether the password is already hashed
+     * @return client websocket
+     * @throws DeploymentException if connecting fails
+     * @throws IOException if communication fails
+     */
+    public ClientWebSocket connect(String user, char[] password, boolean hash)
+        throws DeploymentException, IOException
+    {
+        //hash password if unhashed
+        if(!hash && user != null && password != null)
+        {
+            password = new HashUtil().hash(user, password).toCharArray();
+        }
+
         if(fConnWatchdog == null
             || fConnWatchdog.getWebsocket() == null)
         {
@@ -137,7 +161,12 @@ public class WebSocketConnector
             //connect
             fConnWatchdog = new ConnectionWatchdog(fUri, fQueryHandler,
                 fFormat, fCompression);
-            
+
+            if(user != null && password != null)
+            {
+                fConnWatchdog.setAuthData(user, new String(password));
+            }
+
             try
             {
                 fConnWatchdog.connect();
@@ -147,7 +176,7 @@ public class WebSocketConnector
                 fLogger.log(Level.SEVERE,
                     "error while establishing initial connection", e);
                 e.printStackTrace();
-                
+
                 //propagate exception if an initial connection is needed
                 if(fFailOnError)
                 {
@@ -159,7 +188,7 @@ public class WebSocketConnector
                 fLogger.log(Level.SEVERE,
                     "error while establishing initial connection", e);
                 e.printStackTrace();
-                
+
                 //propagate exception if an initial connection is needed
                 if(fFailOnError)
                 {
@@ -170,11 +199,11 @@ public class WebSocketConnector
             //activate query handler
             Thread queryHandlerThread = new Thread(fQueryHandler);
             queryHandlerThread.start();
-            
+
             //start watchdogs
             Thread connectionThread = new Thread(fConnWatchdog);
             connectionThread.start();
-            
+
             if(fWatchdogEnabled)
             {
                 PingWatchdog watchdog = new PingWatchdog(fQueryHandler);
@@ -221,7 +250,7 @@ public class WebSocketConnector
         {
             fConnWatchdog.disconnect();
         }
-        
+
         fQueryHandler.deactivate();
     }
 }

@@ -68,9 +68,14 @@ public class MessageFuture implements IMessageCallback
     }
 
     @Override
-    public WebsockQuery get(long timeout, TimeUnit arg1)
+    public WebsockQuery get(long timeout, TimeUnit unit)
         throws InterruptedException, ExecutionException, TimeoutException
     {
+        if(unit != null)
+        {
+            timeout = TimeUnit.MILLISECONDS.convert(timeout, unit);
+        }
+
         if(!fDone)
         {
             synchronized(fTrigger)
