@@ -1,20 +1,18 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ *  Copyright 2015 Institute of Information Systems, Hof University
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
  *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *  under the License.
  */
 package de.hofuniversity.iisys.neo4j.websock.queries;
 
@@ -45,7 +43,13 @@ public class BasicQueryHandler implements IQueryHandler
     public static final long DEFAULT_TIMER_MS = 1000;
     public static final int DEFAULT_RETRIES = 0;
 
+    public static final int ID_POOLS = 40;
+    public static final int ID_POOL_SIZE = 100000;
+
     private final Object fTrigger;
+
+    private final Object[] fPoolIdLocks;
+    private final int[] fPoolIds;
 
     private final Map<Integer, WebsockQuery> fPendingQueries;
     private final Map<Integer, IMessageCallback> fPendingMessages;
@@ -69,9 +73,10 @@ public class BasicQueryHandler implements IQueryHandler
 
     private boolean fResendProcedures;
 
-    private boolean fActive;
+    private int fPoolCounter;
+    private int fIdPoolCounter;
 
-    private Integer fNextId;
+    private boolean fActive;
 
     /**
      * Creates a single-connection query handler with default values that still
@@ -80,6 +85,17 @@ public class BasicQueryHandler implements IQueryHandler
     public BasicQueryHandler()
     {
         fTrigger = new Object();
+
+        fPoolIdLocks = new Object[ID_POOLS];
+        fPoolIds = new int[ID_POOLS];
+
+        //initialize separated ID pools
+        for(int i = 0; i < ID_POOLS; ++i)
+        {
+            fPoolIdLocks[i] = new Object();
+            fPoolIds[i] = i * ID_POOL_SIZE;
+        }
+        fIdPoolCounter = 0;
 
         fPendingQueries = new HashMap<Integer, WebsockQuery>();
         fPendingMessages = new HashMap<Integer, IMessageCallback>();
@@ -91,8 +107,6 @@ public class BasicQueryHandler implements IQueryHandler
         fUnhandled = new LinkedList<WebsockQuery>();
 
         fProcedureQueries = new HashMap<String, WebsockQuery>();
-
-        fNextId = 0;
 
         fLogger = Logger.getLogger(this.getClass().getName());
         fDebug = (fLogger.getLevel() == Level.FINEST);
@@ -515,11 +529,18 @@ public class BasicQueryHandler implements IQueryHandler
     @Override
     public int getId()
     {
+        final int idIndex = ++fIdPoolCounter % ID_POOLS;
         int id = 1;
 
-        synchronized(fNextId)
+        synchronized(fPoolIdLocks[idIndex])
         {
-            id = ++fNextId;
+            id = fPoolIds[idIndex]++;
+
+            //wrap on overflow
+            if(fPoolIds[idIndex] == ID_POOL_SIZE * (idIndex + 1))
+            {
+                fPoolIds[idIndex]= ID_POOL_SIZE * idIndex;
+            }
         }
 
         return id;
