@@ -18,7 +18,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>de.hofuniversity.iisys</groupId>
   <artifactId>neo4j-websocket-client</artifactId>
-  <version>0.5.1</version>
+  <version>0.5.2</version>
   <licenses>
     <license>
       <name>The Apache Software License, Version 2.0</name>

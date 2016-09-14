@@ -189,6 +189,8 @@ public class ConnectionWatchdog implements Runnable
             }
         } while(fActive
             && (fSession == null || !fSession.isOpen()));
+
+        fDisconnected = false;
     }
 
     /**
